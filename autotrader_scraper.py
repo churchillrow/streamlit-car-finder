@@ -65,8 +65,8 @@ def scrape_autotrader():
     df["Expected Price"] = df["Year"].apply(lambda x: expected_price(msrp_estimate, x))
     df["Expected Mileage"] = df["Year"].apply(lambda x: expected_mileage(x))
     
-    # Calculate Deal Score
-    df["Deal Score"] = ((df["Expected Price"] - df["Price"]) / df["Expected Price"] * 100) - ((df["Mileage"] - df["Expected Mileage"]) / df["Expected Mileage"] * 10)
+    # Adjusted Deal Score Formula
+    df["Deal Score"] = ((df["Expected Price"] - df["Price"]) / df["Expected Price"] * 100) - np.clip((df["Mileage"] - df["Expected Mileage"]) / df["Expected Mileage"] * 5, -10, 10)
     
     return df
 
@@ -83,23 +83,11 @@ sort_order = st.selectbox("Sort Order", ["Ascending", "Descending"], index=0)
 ascending = True if sort_order == "Ascending" else False
 df = df.sort_values(by=sort_column, ascending=ascending)
 
-min_year, max_year = int(df["Year"].min()), int(df["Year"].max())
-year_filter = st.slider("Select Model Year Range", min_year, max_year, (min_year, max_year))
-price_filter = st.slider("Max Price", 5000, 100000, 40000, step=500)
-mileage_filter = st.slider("Max Mileage", 10000, 250000, 80000, step=5000)
-
-# Keyword Filter
-keyword_filter = st.text_input("Keyword Filter", "")
-
 deal_filter = st.checkbox("Show Only Exceptional Deals (Top 10%)")
 
 if deal_filter:
     top_10_percent = df["Deal Score"].quantile(0.9)
     df = df[df["Deal Score"] >= top_10_percent]
-
-# Apply Keyword Filter
-if keyword_filter:
-    df = df[df["Title"].str.contains(keyword_filter, case=False, na=False)]
 
 st.write(f"Showing {len(df)} cars matching your filters:")
 st.dataframe(df)
