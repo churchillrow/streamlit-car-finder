@@ -10,6 +10,14 @@ base_url = "https://www.autotrader.ca/cars/subaru/outback/bc/?rcp=15&rcs={}&srt=
 
 headers = {"User-Agent": "Mozilla/5.0"}
 
+# Expected depreciation function
+def expected_price(msrp, model_year, current_year=2025):
+    return msrp * (0.8 * (0.85 ** (current_year - model_year)))
+
+# Expected mileage function
+def expected_mileage(model_year, current_year=2025, annual_mileage=15000):
+    return max(annual_mileage * (current_year - model_year), 0)
+
 # Scrape AutoTrader
 @st.cache_data
 def scrape_autotrader():
@@ -52,10 +60,13 @@ def scrape_autotrader():
     df["Mileage"] = pd.to_numeric(df["Mileage"].str.replace("[\\ km,]", "", regex=True), errors='coerce')
     df = df.drop_duplicates().dropna(subset=["Price", "Mileage", "Year"])
     
-    # Calculate median price for each year
-    median_prices = df.groupby("Year")["Price"].median()
-    df["Median Price"] = df["Year"].map(median_prices)
-    df["Deal Score"] = (df["Median Price"] - df["Price"]) / df["Median Price"] * 100
+    # Calculate expected price based on depreciation
+    msrp_estimate = 40000  # Estimated MSRP for new Subaru Outback
+    df["Expected Price"] = df["Year"].apply(lambda x: expected_price(msrp_estimate, x))
+    df["Expected Mileage"] = df["Year"].apply(lambda x: expected_mileage(x))
+    
+    # Calculate Deal Score
+    df["Deal Score"] = ((df["Expected Price"] - df["Price"]) / df["Expected Price"] * 100) - ((df["Mileage"] - df["Expected Mileage"]) / df["Expected Mileage"] * 10)
     
     return df
 
@@ -76,25 +87,14 @@ min_year, max_year = int(df["Year"].min()), int(df["Year"].max())
 year_filter = st.slider("Select Model Year Range", min_year, max_year, (min_year, max_year))
 price_filter = st.slider("Max Price", 5000, 100000, 40000, step=500)
 mileage_filter = st.slider("Max Mileage", 10000, 250000, 80000, step=5000)
-seller_filter = st.radio("Seller Type", ["All", "Dealer", "Private Seller"])
+
 deal_filter = st.checkbox("Show Only Exceptional Deals (Top 10%)")
 
-filtered_df = df[
-    (df["Year"] >= year_filter[0]) & (df["Year"] <= year_filter[1]) &
-    (df["Price"] <= price_filter) &
-    (df["Mileage"] <= mileage_filter)
-]
-
-if seller_filter == "Dealer":
-    filtered_df = filtered_df[~filtered_df["Seller"].str.contains("Private Seller", na=False)]
-elif seller_filter == "Private Seller":
-    filtered_df = filtered_df[filtered_df["Seller"].str.contains("Private Seller", na=False)]
-
 if deal_filter:
-    top_10_percent = filtered_df["Deal Score"].quantile(0.9)
-    filtered_df = filtered_df[filtered_df["Deal Score"] >= top_10_percent]
+    top_10_percent = df["Deal Score"].quantile(0.9)
+    df = df[df["Deal Score"] >= top_10_percent]
 
-st.write(f"Showing {len(filtered_df)} cars matching your filters:")
-st.dataframe(filtered_df)
+st.write(f"Showing {len(df)} cars matching your filters:")
+st.dataframe(df)
 
-st.download_button("📥 Download Listings as CSV", data=filtered_df.to_csv(index=False), file_name="autotrader_listings.csv", mime="text/csv")
+st.download_button("📥 Download Listings as CSV", data=df.to_csv(index=False), file_name="autotrader_listings.csv", mime="text/csv")
