@@ -10,14 +10,6 @@ base_url = "https://www.autotrader.ca/cars/subaru/outback/bc/?rcp=15&rcs={}&srt=
 
 headers = {"User-Agent": "Mozilla/5.0"}
 
-# Expected depreciation function
-def expected_price(msrp, model_year, current_year=2025):
-    return msrp * (0.8 * (0.85 ** (current_year - model_year)))
-
-# Expected mileage function
-def expected_mileage(model_year, current_year=2025, annual_mileage=15000):
-    return max(annual_mileage * (current_year - model_year), 0)
-
 # Scrape AutoTrader
 @st.cache_data
 def scrape_autotrader():
@@ -60,14 +52,6 @@ def scrape_autotrader():
     df["Mileage"] = pd.to_numeric(df["Mileage"].str.replace("[\\ km,]", "", regex=True), errors='coerce')
     df = df.drop_duplicates().dropna(subset=["Price", "Mileage", "Year"])
     
-    # Calculate expected price based on depreciation
-    msrp_estimate = 40000  # Estimated MSRP for new Subaru Outback
-    df["Expected Price"] = df["Year"].apply(lambda x: expected_price(msrp_estimate, x))
-    df["Expected Mileage"] = df["Year"].apply(lambda x: expected_mileage(x))
-    
-    # Adjusted Deal Score Formula with softer mileage penalty
-    df["Deal Score"] = ((df["Expected Price"] - df["Price"]) / df["Expected Price"] * 100) - np.clip((df["Mileage"] - df["Expected Mileage"]) / df["Expected Mileage"] * 3, -5, 5)
-    
     return df
 
 if "car_data" not in st.session_state:
@@ -78,30 +62,31 @@ df = st.session_state["car_data"]
 st.title("🚗 AutoTrader Car Finder")
 st.write("Find the best Subaru Outback deals in BC.")
 
-sort_column = st.selectbox("Sort By", ["Year", "Title", "Price", "Mileage", "Deal Score"], index=0)
+sort_column = st.selectbox("Sort By", ["Year", "Title", "Price", "Mileage"], index=0)
 sort_order = st.selectbox("Sort Order", ["Ascending", "Descending"], index=0)
 ascending = True if sort_order == "Ascending" else False
-df = df.sort_values(by=sort_column, ascending=ascending)
 
-# Apply Filters
-min_year, max_year = int(df["Year"].min()), int(df["Year"].max())
-year_filter = st.slider("Select Model Year Range", min_year, max_year, (min_year, max_year))
+year_filter = st.slider("Select Model Year Range", int(df["Year"].min()), int(df["Year"].max()), (int(df["Year"].min()), int(df["Year"].max())))
 price_filter = st.slider("Max Price", 5000, 100000, 40000, step=500)
 mileage_filter = st.slider("Max Mileage", 10000, 250000, 80000, step=5000)
 keyword_filter = st.text_input("Keyword Filter", "")
 
-deal_filter = st.checkbox("Show Only Exceptional Deals (Top 10%)")
-
-df = df[(df["Year"] >= year_filter[0]) & (df["Year"] <= year_filter[1]) & (df["Price"] <= price_filter) & (df["Mileage"] <= mileage_filter)]
+df_filtered = df[(df["Year"] >= year_filter[0]) & (df["Year"] <= year_filter[1]) & (df["Price"] <= price_filter) & (df["Mileage"] <= mileage_filter)]
 
 if keyword_filter:
-    df = df[df["Title"].str.contains(keyword_filter, case=False, na=False)]
+    df_filtered = df_filtered[df_filtered["Title"].str.contains(keyword_filter, case=False, na=False)]
 
-if deal_filter:
-    top_10_percent = df["Deal Score"].quantile(0.9)
-    df = df[df["Deal Score"] >= top_10_percent]
+# Calculate median price and mileage within the filtered dataset
+median_price = df_filtered["Price"].median()
+median_mileage = df_filtered["Mileage"].median()
 
-st.write(f"Showing {len(df)} cars matching your filters:")
-st.dataframe(df)
+# Calculate Deal Score based on the filtered dataset
+if not df_filtered.empty:
+    df_filtered["Deal Score"] = ((median_price - df_filtered["Price"]) / median_price * 100) - ((df_filtered["Mileage"] - median_mileage) / median_mileage * 5)
+    df_filtered = df_filtered.sort_values(by=sort_column, ascending=ascending)
 
-st.download_button("📥 Download Listings as CSV", data=df.to_csv(index=False), file_name="autotrader_listings.csv", mime="text/csv")
+st.write(f"Market Median Price: ${median_price:,.2f} | Market Median Mileage: {median_mileage:,.0f} km")
+st.write(f"Showing {len(df_filtered)} cars matching your filters:")
+st.dataframe(df_filtered)
+
+st.download_button("📥 Download Listings as CSV", data=df_filtered.to_csv(index=False), file_name="autotrader_listings_filtered.csv", mime="text/csv")
