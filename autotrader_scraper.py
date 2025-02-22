@@ -88,11 +88,18 @@ year_filter = st.slider("Select Model Year Range", min_year, max_year, (min_year
 price_filter = st.slider("Max Price", 5000, 100000, 40000, step=500)
 mileage_filter = st.slider("Max Mileage", 10000, 250000, 80000, step=5000)
 
+# Keyword Filter
+keyword_filter = st.text_input("Keyword Filter", "")
+
 deal_filter = st.checkbox("Show Only Exceptional Deals (Top 10%)")
 
 if deal_filter:
     top_10_percent = df["Deal Score"].quantile(0.9)
     df = df[df["Deal Score"] >= top_10_percent]
+
+# Apply Keyword Filter
+if keyword_filter:
+    df = df[df["Title"].str.contains(keyword_filter, case=False, na=False)]
 
 st.write(f"Showing {len(df)} cars matching your filters:")
 st.dataframe(df)
